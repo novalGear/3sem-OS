@@ -1,10 +1,22 @@
 #include <unistd.h>
 #include <stdio.h>
+#include <string.h>
 #include <assert.h>
 #include <stdlib.h>
 #include <sys/wait.h>
 
 #include "parser.h"
+
+#define DPRINTF(...) fprintf(stderr, __VA_ARGS__)
+
+void
+cmd_struct_print(const struct command* cmd) {
+	assert(cmd);
+	DPRINTF("cmd name: \"%s\"\n", cmd->exe);
+	for (uint32_t arg_ind=0; arg_ind<cmd->arg_count; arg_ind++) {
+		DPRINTF("%u: \"%s\"\n", arg_ind, cmd->args[arg_ind]);
+	}
+}
 
 bool is_next_pipe(const struct expr* e) {
     assert(e);  // May be unnecessary
@@ -18,7 +30,7 @@ execute_cmd(const struct expr* e) {
 	int fildes[2] = {};
 	bool not_last_cmd = is_next_pipe(e);
 	if (not_last_cmd) {
-		printf("Not last command -> pipe\n");
+		DPRINTF("Not last command -> pipe\n");
 		pipe(fildes);
 	}
     pid_t pid = fork();
@@ -32,10 +44,25 @@ execute_cmd(const struct expr* e) {
 			close(fildes[0]);
 			close(fildes[1]);
         }
-        printf("There goes execution\n");
-        execv(e->cmd.exe, e->cmd.args);
+        DPRINTF("There goes execution\n");
+		const uint32_t cmd_args_count = e->cmd.arg_count;
+		char* args[cmd_args_count + 2] = {};
+		char temp_buf[5] = {"grep"};
+		if (e->cmd.arg_count > 1) {
+			args[0] = temp_buf;
+			memcpy(args + 1, e->cmd.args, sizeof(char*) * e->cmd.arg_count);
+
+		}
+		for (uint32_t arg_ind=0; arg_ind<e->cmd.arg_count + 1; arg_ind++) {
+			DPRINTF("%u: \"%s\"\n", arg_ind, args[arg_ind]);
+		}
+		// DPRINTF("cmd: 	\"%s\"\n", e->cmd.exe);
+		cmd_struct_print(&(e->cmd));
+		execvp(e->cmd.exe, args);
+		DPRINTF("exec finished\n");
         exit(0);
     } else {
+		DPRINTF("parent here\n");
 		if (input_fd != STDIN_FILENO) {
 			close(input_fd);
 		}
