@@ -12,6 +12,9 @@ all:
 	make compile_test
 	make test
 
+setup:
+	mkdir $(APP_DIR)
+
 run:
 	./$(APP_DIR)/$(EXE)
 
