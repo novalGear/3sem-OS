@@ -1,0 +1,2 @@
+./data/1 | ./data/2 | ./data/3
+ls -ltr  | ./data/2 | ./data/3

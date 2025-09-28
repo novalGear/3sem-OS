@@ -7,7 +7,11 @@
 
 #include "parser.h"
 
-#define DPRINTF(...) fprintf(stderr, __VA_ARGS__)
+#ifdef DEBUG
+	#define DPRINTF(...) fprintf(stderr, __VA_ARGS__)
+#else
+   #define DPRINTF(...)
+#endif
 
 void
 cmd_struct_print(const struct command* cmd) {
@@ -36,31 +40,21 @@ execute_cmd(const struct expr* e) {
     pid_t pid = fork();
     if (pid == 0) {
 		if (input_fd != STDIN_FILENO) {
+			DPRINTF("INPUT FD != STDIN\n");
 			dup2(input_fd, STDIN_FILENO);
 			close(input_fd);
 		}
         if (not_last_cmd) {
+			DPRINTF("Not last command\n");
 			dup2(fildes[1], STDOUT_FILENO);
 			close(fildes[0]);
 			close(fildes[1]);
         }
         DPRINTF("There goes execution\n");
-		const uint32_t cmd_args_count = e->cmd.arg_count;
-		char* args[cmd_args_count + 2] = {};
-		char temp_buf[5] = {"grep"};
-		if (e->cmd.arg_count > 1) {
-			args[0] = temp_buf;
-			memcpy(args + 1, e->cmd.args, sizeof(char*) * e->cmd.arg_count);
-
-		}
-		for (uint32_t arg_ind=0; arg_ind<e->cmd.arg_count + 1; arg_ind++) {
-			DPRINTF("%u: \"%s\"\n", arg_ind, args[arg_ind]);
-		}
-		// DPRINTF("cmd: 	\"%s\"\n", e->cmd.exe);
 		cmd_struct_print(&(e->cmd));
-		execvp(e->cmd.exe, args);
-		DPRINTF("exec finished\n");
-        exit(0);
+		execvp(e->cmd.exe, e->cmd.args);
+		perror("execvp failed");
+        exit(1);
     } else {
 		DPRINTF("parent here\n");
 		if (input_fd != STDIN_FILENO) {
@@ -79,17 +73,13 @@ void
 process_expr(const struct expr* e) {
     assert(e);
     if (e->type == EXPR_TYPE_COMMAND) {
-			printf("\tCommand: %s", e->cmd.exe);
+			DPRINTF("\tCommand: %s", e->cmd.exe);
 			for (uint32_t i = 0; i < e->cmd.arg_count; ++i)
-				printf(" %s", e->cmd.args[i]);
-			printf("\n");
+				DPRINTF(" %s", e->cmd.args[i]);
+			DPRINTF("\n");
             execute_cmd(e);
 		} else if (e->type == EXPR_TYPE_PIPE) {
-			printf("\tPIPE\n");
-		} else if (e->type == EXPR_TYPE_AND) {
-			printf("\tAND\n");
-		} else if (e->type == EXPR_TYPE_OR) {
-			printf("\tOR\n");
+			DPRINTF("\tPIPE\n");
 		} else {
 			assert(false);
 	}
@@ -97,20 +87,9 @@ process_expr(const struct expr* e) {
 
 void execute_command_line(const struct command_line* line) {
     assert(line);
-	printf("================================\n");
-	printf("Command line:\n");
-	printf("Is background: %d\n", (int)line->is_background);
-	printf("Output: ");
-	if (line->out_type == OUTPUT_TYPE_STDOUT) {
-		printf("stdout\n");
-	} else if (line->out_type == OUTPUT_TYPE_FILE_NEW) {
-		printf("new file - \"%s\"\n", line->out_file);
-	} else if (line->out_type == OUTPUT_TYPE_FILE_APPEND) {
-		printf("append file - \"%s\"\n", line->out_file);
-	} else {
-		assert(false);
-	}
-	printf("Expressions:\n");
+	DPRINTF("================================\n");
+	DPRINTF("Command line:\n");
+	DPRINTF("Expressions:\n");
 	const struct expr *e = line->head;
 	while (e != NULL) {
 		process_expr(e);
