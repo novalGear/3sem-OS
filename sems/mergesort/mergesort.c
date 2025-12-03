@@ -9,8 +9,15 @@
 
 // M должно быть кратно N
 #define M (16)
-#define N (4)
+#define N (5)
 
+#define DEBUG
+
+#ifdef DEBUG
+#define DBG_PRINT(...) printf(__VA_ARGS__);
+#else
+#define DBG_PRINT(...)
+#endif
 
 struct monitor_t {
     pthread_mutex_t mtx;
@@ -26,12 +33,10 @@ void monitor_init(struct monitor_t* monitor) {
     assert(monitor);
 
     pthread_mutex_init(&(monitor->mtx), NULL);
-    // pthread_cond_init(&(monitor->cond), NULL);
 }
 
 void monitor_destroy(struct monitor_t* monitor) {
     assert(monitor);
-    // pthread_cond_destroy(&(monitor->cond));
     pthread_mutex_destroy(&(monitor->mtx));
 }
 
@@ -41,16 +46,26 @@ int comparator(const void* a, const void* b) {
 
 void print_int_array(int* array, size_t size) {
     for (size_t i = 0; i < size; i++) {
-        printf("%d ", array[i]);
+        DBG_PRINT("%d ", array[i])
     }
-    printf("\n");
+    DBG_PRINT("\n")
 }
 
 void print_size_t_array(size_t* array, size_t size) {
     for (size_t i = 0; i < size; i++) {
-        printf("%ld ", array[i]);
+        DBG_PRINT("%ld ", array[i])
     }
-    printf("\n");
+    DBG_PRINT("\n")
+}
+
+size_t min_size_t(size_t a, size_t b) {
+    size_t res = (a < b) ? a : b;
+    return res;
+}
+
+size_t max_size_t(size_t a, size_t b) {
+    size_t res = (a < b) ? b : a;
+    return res;
 }
 
 void sort_subarray(void* arg) {
@@ -60,41 +75,42 @@ void sort_subarray(void* arg) {
     size_t i = thread_arg.index;
     struct monitor_t* monitor = thread_arg.monitor;
 
-    size_t size     = (M / N);
-    size_t from_ind = i * (M / N);
+    size_t size      = (M / N);
+    size_t start_ind = i * (M / N);
+    size_t end_ind   = min_size_t(start_ind + size, M);
+    size = end_ind - start_ind;
 
-    int* src = monitor->array + from_ind;
-    int local_array[size] = {};
-    pthread_mutex_lock(&(monitor->mtx));            // делаем lock и копируем часть массива, которую сортируем
-    memcpy(local_array, src, size * sizeof(int));
+    // последнему может достаться больше !!!
 
-    printf("before sorting\n");
+    int* local_array = monitor->array + start_ind;
+
+    DBG_PRINT("before sorting\n")
     print_int_array(local_array, size);
-
-    pthread_mutex_unlock(&(monitor->mtx));          // освобождаем доступ к монитору, переходим к сортировке
-
 
     qsort(local_array, size, sizeof(int), &comparator);
 
-
-    pthread_mutex_lock(&(monitor->mtx));            // lock монитора, записываем отсортированную часть
-    printf("after sorting\n");
+    DBG_PRINT("after sorting\n")
     print_int_array(local_array, size);
-    printf("=========================================\n");
-    memcpy(src, local_array, size * sizeof(int));
-    pthread_mutex_unlock(&(monitor->mtx));
+    DBG_PRINT("=========================================\n")
 }
 
-size_t find_min_in_current_slice(int* array, size_t indices[]) {
+size_t find_min_in_current_slice(int* array, size_t indices[], size_t ends[]) {
     assert(array);
 
     size_t target_ind = 0;
     int min_val = INT_MAX;
     bool found = false;
 
+    DBG_PRINT("find min in: ");
     for (size_t i = 0; i < N; i++) {
-        if (indices[i] < (M / N)) {
-            int temp = array[(M / N) * i + indices[i]];
+        DBG_PRINT("%d(%ld) ", array[indices[i]], indices[i]);
+    }
+    DBG_PRINT("\n");
+
+    for (size_t i = 0; i < N; i++) {
+        // проверка что еще не вышли из отсортированного фрагмента
+        if (indices[i] < ends[i]) {
+            int temp = array[indices[i]];
             if (temp < min_val) {
                 min_val = temp;
                 target_ind = i;
@@ -110,14 +126,28 @@ size_t find_min_in_current_slice(int* array, size_t indices[]) {
 int* merge(int* array) {
     assert(array);
 
-    size_t indices[N] = {0};
-    int* new_array = (int*)calloc(M, sizeof(int));
+    size_t indices[N] = {0}; // массив индексов на элементы в отсортированных фрагментах, по одному на фрагмент
+    for (size_t i = 0; i < N; i++) {
+        indices[i] = i * (M / N);
+    }
+    size_t ends[N] = {0};
+    for (size_t i = 0; i < N; i++) {
+        ends[i] = (i+1) * (M / N);
+    }
+    ends[N-1] = max_size_t(ends[N-1], M);
+
+    DBG_PRINT("ends indices array:\n");
+    print_size_t_array(ends, N);
+
+    int* new_array = (int*)malloc(M * sizeof(int));
 
     for (size_t i = 0; i < M; i++) {
-        size_t min_ind = find_min_in_current_slice(array, indices);
+        // выбираем минимальный элемент из текущих
+        size_t min_ind = find_min_in_current_slice(array, indices, ends);
         if (min_ind >= N) break;  // Все фрагменты обработаны
 
-        new_array[i] = array[(M / N) * min_ind + indices[min_ind]];
+        DBG_PRINT("found min: %d(%ld)\n", array[indices[min_ind]], indices[min_ind]);
+        new_array[i] = array[indices[min_ind]];
         indices[min_ind]++;
     }
 
@@ -145,7 +175,6 @@ bool check_sorting(int* array, const size_t size) {
 
 int main() {
 
-    // возможно придется динамически выделять ???
     int array[M] = {8, 9, 3, 2, 0, 1, 4, 5, 7, 6, 10, 15, 13, 12, 11, 14};
     pthread_t threads[N];
     struct monitor_t monitor;
@@ -153,6 +182,7 @@ int main() {
     monitor.array = array;
     monitor_init(&monitor);
 
+    // подготовим данные для потоков
     struct thread_arg_t thread_data[N] = {};
     for (size_t i = 0; i < N; i++) {
         thread_data[i].index = i;
@@ -178,14 +208,19 @@ int main() {
         pthread_join(threads[i], NULL);
     }
 
+    DBG_PRINT("before merge:\n");
+    print_int_array(monitor.array, M);
     // финальная стадия сортировки - слияние
     int* new_array = merge(monitor.array);
 
+    DBG_PRINT("after merge:\n");
     // проверка сортировки
     if (check_sorting(new_array, M)) {
+        print_int_array(new_array, M);
         printf("Sorting failed\n");
         return false;
     } else {
+        print_int_array(new_array, M);
         printf("Sorting succesful\n");
         return true;
     }
